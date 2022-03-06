@@ -1,0 +1,204 @@
+---
+title: "Draft Dashbard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(plotly)
+library(viridis)
+library(leaflet)
+library(mapview)
+library(tmap)
+library(sf)
+library(cluster)
+
+
+#myWeb="https://github.com/EvansDataScience/VAforPM_Dashboard/raw/main/"
+#^^ directions to the website
+#someVars=readRDS(file=url(paste0(myWeb,"dataCSV.rds")))
+
+kc_demographics <- read_rds("kc_demographics.rds")
+df <- read_rds("Projects - January 22, 2022.rds")
+df <- df %>% mutate(Name = str_to_title(str_replace(df$Name, "AD ", "")), Program = str_to_title(str_replace(df$Program, "AD ", "")),
+              Phase = factor(df$Phase, levels = c('PLANNING',
+                                                  'PREDESIGN',
+                                                  'DESIGN',
+                                                  'IMPLEMENT',
+                                                  'CLOSEOUT',
+                                                  'HOLD',
+                                                  'NOT SET')))
+```
+```{r univerient}
+df2 <- df %>% select(Master, Phase)
+tab_All <- df2 %>% select(-Master) %>% table() %>% as_tibble() %>% rename(Phase = ".", Count = n)
+title_Text <- 'Total Number of Airport Projects by Phase'
+X_axis_title <- 'Project Phases'
+max <- as.integer(max(tab_All$Count))
+```
+```{r biverient}
+df3 <- df %>% select(Name, Program, `LTD Actuals`, `EAC (Current)`) %>% drop_na() %>%
+  mutate(budget_remaining = (`EAC (Current)` - `LTD Actuals`),
+         p_budget_remaining = (budget_remaining / `EAC (Current)`))
+         
+df3 <- df3 %>% mutate(p_budget_remaining = round(df3$p_budget_remaining, 2))
+
+tab_fin <- df3 %>% select(-c( `LTD Actuals`, `EAC (Current)`)) %>%  as_tibble()
+title_text_fin <- 'Percent (%) Budget Remaining by Project'
+x_axis_title_fin <- 'Project Names'
+max_fin <- as.integer(max(tab_fin$p_budget_remaining)) 
+min_fin <- as.integer(min(tab_fin$budget_remaining))
+```
+```{r clustering and transforming the data}
+set.seed(23994)
+vars <- c('med_income', 'p_e_less', 'percent_poc')#variables needed
+equity_matrix <- cluster::daisy(kc_demographics[,vars])
+res.pam <- cluster::pam(x=equity_matrix,k = 5,cluster.only = F)
+# setting the cluster order and names
+kc_demographics$cluster <- as.double(res.pam$clustering)
+
+kc_demographics$cluster <- factor(kc_demographics$cluster,
+                                  levels=c(1,5,2,4,3),
+                                  labels=c("low income high diversity",
+                                           "low income middle diversity",
+                                           "middle income middle diversity",
+                                           "high income middle diversity",
+                                           "high income low diversity"),
+                                  ordered=T)
+```
+
+Static Plots
+=======================================================================
+
+Column {data-width=600}
+-----------------------------------------------------------------------
+
+### Map 
+```{r}
+kc_demographics %>% mutate(esj_score = as.integer(cluster)) %>%
+  st_sf() %>% tm_shape() + 
+  tm_polygons(col = "cluster",
+          palette = "Set1",
+          title = "ESJ Score",
+          legend.hist = TRUE) +
+  tm_layout(title = "Equity Score\nby Census Tract",
+            frame = FALSE,
+            legend.outside = TRUE,
+            bg.color = "grey70",
+            legend.hist.width = .8,
+            fontfamily = "Verdana")+
+    tm_scale_bar(position = c("left", "bottom"))
+```
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+
+### Univariate Plot
+
+```{r}
+data <- tab_All
+data$Phase <- factor(data$Phase, levels = c('PLANNING',
+                                          'PREDESIGN',
+                                          'DESIGN',
+                                          'IMPLEMENT',
+                                          'CLOSEOUT',
+                                          'HOLD',
+                                          'NOT SET'))
+base <- ggplot(data, aes(x = Phase,
+                   y = Count,
+                   label = Count)) +
+  theme_classic()
+
+lolliplot_All = base + 
+  geom_segment(aes(y = 0, 
+                   yend = Count, 
+                   x = Phase, 
+                   xend = Phase),
+               color = "gray")  +
+  
+ geom_point(size = 4, color = "Blue") +
+  geom_text(nudge_x=0.3,show.legend = FALSE) +
+  geom_hline(yintercept = 0) +
+  scale_y_continuous(limits = c(0, max)) + 
+  theme(axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.line.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.line.x = element_blank()) +
+  labs(title = title_Text) +
+  xlab(X_axis_title)
+lolliplot_All
+```
+
+### Multivariate Plot
+
+```{r}
+data <- tab_fin  %>% filter(p_budget_remaining <= .9, p_budget_remaining != 0) %>% 
+  mutate(surplus = p_budget_remaining > 0)
+
+base <- ggplot(data, aes(x = reorder(Name, p_budget_remaining),
+                         y = p_budget_remaining,
+                         label = scales::percent(p_budget_remaining),
+                         color = surplus)) +
+  theme_classic()
+
+
+lolliplot_90 = base + 
+  geom_segment(aes(y = 0, 
+                   yend = p_budget_remaining, 
+                   x = reorder(Name, p_budget_remaining), 
+                   xend = Name),
+               color = "gray")  +
+ geom_point(size = 4, color = 'Blue') +
+  geom_text(nudge_x=2.5,show.legend = FALSE) +
+  scale_y_continuous(labels = scales::label_percent(accuracy = 1L)) +
+  geom_hline(yintercept = 0) +
+  theme(axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.line.y = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.line.x = element_blank(),
+        axis.text.x = element_blank()) +
+  labs(title = title_text_fin) +
+  xlab(x_axis_title_fin) +
+    facet_wrap(~Program)
+  
+lolliplot_90
+```
+
+Interactive Plots
+=======================================================================
+
+Column {data-width=600}
+-----------------------------------------------------------------------
+
+### Map 
+```{r}
+`King County` <- kc_demographics %>% mutate(`ESJ Score` = cluster) %>% st_sf()
+mapview(`King County`, zcol = "ESJ Score")
+
+```
+
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+
+### Univariate Plot
+
+```{r}
+ggplotly(lolliplot_All)
+```
+
+### Multivariate Plot
+```{r}
+ggplotly(lolliplot_90) %>% layout(showlegend = FALSE)
+```
+
