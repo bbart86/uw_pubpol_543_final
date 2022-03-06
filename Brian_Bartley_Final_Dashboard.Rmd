@@ -18,12 +18,9 @@ library(sf)
 library(cluster)
 
 
-#myWeb="https://github.com/EvansDataScience/VAforPM_Dashboard/raw/main/"
-#^^ directions to the website
-#someVars=readRDS(file=url(paste0(myWeb,"dataCSV.rds")))
-
-kc_demographics <- read_rds("kc_demographics.rds")
-df <- read_rds("Projects - January 22, 2022.rds")
+myWeb="https://github.com/bbart86/uw_pubpol_543_final/raw/main/"
+kc_demographics <- readRDS(file=url(paste0(myWeb,"kc_demographics.rds")))
+df <- readRDS(file=url(paste0(myWeb,"Projects - January 22, 2022.rds")))
 df <- df %>% mutate(Name = str_to_title(str_replace(df$Name, "AD ", "")), Program = str_to_title(str_replace(df$Program, "AD ", "")),
               Phase = factor(df$Phase, levels = c('PLANNING',
                                                   'PREDESIGN',
